@@ -50,22 +50,16 @@ class VASP:
         from numpy import array
 
         if any(self.crystal.atom_counts == 0):
-            print('FOUND ZEROS in atom_counts <--------------------------------------------', self.crystal.atom_counts)
             from numpy import  where
             idxKeep = list(where( self.crystal.atom_counts > 0)[0])
-            print(idxKeep)
-            print(self.POTCAR.species, 'BEFORe')
             self.POTCAR.species = list(array(self.POTCAR.species)[idxKeep])
-            print(self.POTCAR.species, 'AFTER')
             self.crystal.atom_counts = self.crystal.atom_counts[idxKeep]
-            print(self.crystal.atom_counts)
             
     def _check_tag_exists(self,file,tag):
         from aBuild.utility import grep
 
         lines = grep(file,tag)
         if lines == []:
-            print("Returning False")
             return False
         else:
             return True
@@ -92,49 +86,77 @@ class VASP:
             kpoints = self._check_file_exists('KPOINTS')
             potcar = self._check_file_exists('POTCAR')
             poscar = self._check_file_exists('POSCAR')
-            if not (incar and kpoints and potcar and poscar):
+            output = self._check_file_exists('output')
+
+
+            inputs = incar and kpoints and potcar and poscar
+
+            ''' Check to see if the input files are present
+                if they aren't, no need to proceed, just return
+                'not setup'
+            '''
+            if not inputs:
                 return 'not setup'
-                
-            if incar:
-                relax = grep('INCAR','IBRION')
-                if '-1' not in relax or relax is []:
-                    static = True
-                else:
-                    static = False
-            else:
-                msg.warn("No INCAR found.  That seems odd..")
 
-                outcarfinishtags = self._check_tag_exists('OUTCAR',
-                                                      '------------------------ aborting loop because EDIFF is reached ----------------------------------------\n') or self._check_tag_exists('OUTCAR',' writing wavefunctions')
-
-        
-            if outcar:
+                ''' If the OUTCAR file is present, we know that we're
+                    either running, finished successfully, or finished
+                    with errors!
+                '''
+            elif outcar:
                 time = path.getmtime('OUTCAR')
                 sgrcon = grep('OUTCAR','SGRCON')
+                finalenergyline = grep('OUTCAR','free  energy')
+
+                ''' Check how long since the last file write.  If it was recent
+                     then we're probably running.'''
                 if (ctime - time) < 60:
-                    folderstat = 'running'
+                    return 'running'
+
+                    ''' If it's been a while since the last write, we've probably finished
+                        the calculation.  Let's proceed to error/warning check. 
+                    '''
                 else:
+
+                    ''' Let's first check to see if this is a static
+                        calculation or a relaxation because the tag 
+                        to check for is different.'''
+                    if incar:
+                        relax = grep('INCAR','IBRION')
+                        if '-1' not in relax or relax is []:
+                            static = True
+                        else:
+                            static = False
+
+                    ''' Check finish tag for static calc'''
                     if static and self._check_tag_exists('OUTCAR',
-                                                      '------------------------ aborting loop because EDIFF is reached ----------------------------------------\n'):
-                        print('Tripped 1')
+                                        '------------------------ aborting loop because EDIFF is reached ----------------------------------------\n'):
                         folderstat = 'done'
+                        ''' Check finish tag for relax calc'''
                     elif self._check_tag_exists('OUTCAR',' writing wavefunctions'):
-                        print('Tripped 2')
                         folderstat = 'done'
+                    elif finalenergyline == []:
+                        return 'error'
+                    elif abs( float(finalenergyline[0].split()[-2]) ) > 1000:
+                        return 'error'
                     else:
-                        folderstat = 'running'
+                        return 'idk'
+
+                    if finalenergyline == []:
+                        return 'error'
+                    if finalenergyline != []  and abs( float(finalenergyline[0].split()[-2]) ) > 1000:
+                        return 'error'
             else:
-                folderstat = 'not started'
+                    folderstat = 'not started'
+                    
+                        
+            if output:
+                    warning = grep('output','RRRRR') != [] or grep('output','AAAAAA') != []
+                    if warning:
+                        return 'warning'
+
+
 
                 
-        
-
-
-            #        if outcar:
-            
-            #if 'OUTCAR' in files:
-
-        print("Folder Stat {}".format(folderstat) )
         return folderstat
     
     @staticmethod
@@ -161,7 +183,7 @@ class VASP:
         
         print("KPOINTS built")
         self.POTCAR.writePOTCAR()
-        print("POTCAR built")
+        #print("POTCAR built")
 
     def read_forces(self,allIonic = True):
 
@@ -186,7 +208,6 @@ class VASP:
                                                 lines[n + i + 2].split()[3:6]]))
                 msg.info('Found forces for {} atoms.'.format(nAtoms))
                 if not '--' in lines[n+nAtoms + 2]:
-                    print(lines[n+nAtoms + 2])
                     msg.fatal('It appears that there are forces for more atoms than I was expecting!')
                 if allIonic:
                     forces.append(singleItForces)
@@ -244,20 +265,43 @@ class VASP:
         return stress
 
     def read_results(self, allElectronic = False, allIonic=False):
-        print(self.directory, 'dir')
         if self.directory is not None and self.status() is 'done':
             with chdir(self.directory):
-                #print(self.directory)
                 self.crystal.results = {}
+                self.crystal.results["warning"] = False
                 self.crystal.results["energyF"],self.crystal.results["energyZ"] = self.read_energy(allElectronic=allElectronic)
                 self.crystal.results["forces"] = self.read_forces(allIonic=allIonic)
                 self.crystal.results["stress"] = self.read_stress()
                 #self.POTCAR = POTCAR.from_POTCAR()
                 self.crystal.results["species"] = self.POTCAR.species
+                if abs(self.crystal.results["energyF"]) > 1000:
+                    self.crystal.results["warning"] = True
+                if 'pure' not in self.directory:
+                    self.crystal.results["fEnth"] = self.formationEnergy
+                else:
+                    self.crystal.results["fEnth"] = 0
         else:
+            print(self.status(), 'not reading results')
             self.crystal.results = None
             msg.info("Unable to extract necessary information from directory! ({})".format(self.directory))
     
+    def add_to_results(self,key,item):
+        if self.crystal.results is None:
+            self.crystal.results = {}
+        self.crystal.results[key] = item
+
+    @property
+    def formationEnergy(self):
+        pures = []
+        for i in range(self.crystal.nTypes):
+            pureDir = path.join(path.split(self.directory)[0], 'pure' + self.crystal.species[i])
+            pureVASP = VASP(pureDir,self.crystal.species)
+            pureVASP.read_results()
+            pures.append(pureVASP)
+
+        
+        formationEnergy = self.crystal.results["energyF"]/self.crystal.nAtoms - sum(   [ pures[i].crystal.results["energyF"]/pures[i].crystal.nAtoms * self.crystal.concentrations[i] for i in range(self.crystal.nTypes)])
+        return formationEnergy
         
 class POTCAR:
 
@@ -319,6 +363,7 @@ class POTCAR:
         self.species.reverse()
         pots = [path.join(self.srcdirectory,x + self.setups[x],'POTCAR') for x in self.species]
         if all([isfile(x) for x in pots]):
+            print('found files')
             potsGood = True
             for pot in pots:
                 with open(pot, 'r') as f:
@@ -327,7 +372,8 @@ class POTCAR:
                     potsGood = False
             
             return potsGood
-        else: 
+        else:
+            print("can't find files")
             return False
         
     def writePOTCAR(self,filename = 'POTCAR'):
@@ -415,7 +461,6 @@ class KPOINTS:
             return
         with open(filepath,'r') as f:
             lines = f.readlines()
-        print(filepath)
         if 'Server' in lines[0].split():
             self.method = 'mueller'
             densityLocation = lines[0].split().index('Angstroms.') - 1
@@ -470,9 +515,31 @@ class KPOINTS:
     def equivalent(self):
         pass
 
-    def monkPack(self): 
-        pass
+    def monkPack(self,kvecs,nAtoms): 
+        from math import sqrt
+        from numpy import dot,array,round,prod,argmin
 
+        magnitudes = [sqrt(dot(k, k)) for k in kvecs]
+        sortmags = sorted(magnitudes)
+        largest = sortmags[-1]
+        relativediff = [magnitudes[x]/largest for x in range(3)]
+        possibleDivisions = [round(array(relativediff) * i)  for i in range(1,20) if not any(round(array(relativediff) * i) == 0) ]
+        densities = array([prod(i) * nAtoms for i in possibleDivisions])
+        uniformMeasure = [sum(abs(round(array(relativediff) * i) - array(relativediff) * i)) for i in range(1,20)]
+
+        locMin = argmin(uniformMeasure)
+
+        bestDensity = argmin(abs(densities- float(self.density)))
+        if bestDensity != 0:
+            densityChoices = [bestDensity - 1, bestDensity, bestDensity + 1]
+            uniformityChoices = uniformMeasure[bestDensity -1: bestDensity + 2]
+        else:
+            densityChoices = [ bestDensity, bestDensity + 1]
+            uniformityChoices = uniformMeasure[bestDensity: bestDensity + 2]
+
+        bestChoice = densityChoices[argmin(uniformityChoices)]
+        #        thisOne = densityChoices[argmin(uniformMeasure[argmin(abs(densities- float(targetDensity))) -1: argmin(abs(densities- float(targetDensity))) + 2])]
+        return list(map(int,possibleDivisions[bestChoice])) + [0,0,0]
 
 class POSCAR(object):
     """Represents the POSCAR text representation of a crystal. Useful so that

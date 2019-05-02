@@ -29,7 +29,7 @@ class Controller(object):
         # Read the input file
         self.specs = read(root,inputFile)
 
-        if "directory" not in self.specs["calculator"]["potcars"] or self.specs["calculator"]["potcars"]["directory"] is None:
+        if "directory" not in self.specs["calculator"]["vasp"]["potcars"] or self.specs["calculator"]["vasp"]["potcars"]["directory"] is None:
             print("You did not provide a directory for the POTCARS. Using the environment variable that I found: {}".format(config.POTCAR_DIR))
             self.specs["calculator"]["potcars"]["directory"] = config.POTCAR_DIR
 
@@ -173,20 +173,25 @@ class Controller(object):
         #        dirs = enumdirs + activedirs
 
         print('Building dataset')
-        trainingSet = dataset(dirs,self.species)  
+        trainingSet = dataset(dirs,self.species,calculator='VASP')  
         
         fittingRoot = path.join(self.root,'fitting','mtp')
         thisMTP = MTP(fittingRoot,settings = self.fitting)
         thisMTP.write_blank_pot(self.knary)
         with open(path.join(fittingRoot,'train.cfg'),'a+') as f:
             for crystal in trainingSet.crystals:
-                f.writelines('\n'.join(crystal.lines('mtptrain')))
+                if crystal.results["warning"]:
+                    print("Not adding crystal: {} because the energy doesn't look right. Check it out.".format(calc.crystal.title) )
+                else:
+                    f.writelines('\n'.join(crystal.lines('mtptrain')))
 
-        mlpCommand = 'mlp train pot.mtp train.cfg\n'
-        mljob = Job(self.calculator["execution"],path.join(self.root,"fitting","mtp"),mlpCommand)
-        with chdir(path.join(self.root,"fitting/mtp")):
-            print('Building job file')
-            mljob.write_jobfile()
+
+        thisMTP.train(self.fitting["execution"])
+#        mlpCommand = 'mlp train pot.mtp train.cfg\n'
+#        mljob = Job(self.fitting["execution"],path.join(self.root,"fitting","mtp"),mlpCommand)
+#        with chdir(path.join(self.root,"fitting/mtp")):
+#            print('Building job file')
+#            mljob.write_jobfile()
 
 
     # Build files needed to run the relaxation. Lots of structures. Need to write as crystals
@@ -200,6 +205,7 @@ class Controller(object):
         from glob import glob
 
         self.dataset = "gss"
+        
 
         #        rename(path.join(self.root,'fitting/mtp')
         fittingRoot = path.join(self.root,'fitting','mtp')
@@ -208,7 +214,8 @@ class Controller(object):
             lat = self.enumDicts[ilat]["lattice"]
             
             if lat == 'protos':
-                structures = getProtoPaths()
+                structures = getProtoPaths(self.knary)
+                print(structures)
                 #                subdivide = [structures[x:x+100] for x in range() ]
                 for struct in structures:
                     print("Proto structure:", struct)
@@ -264,7 +271,7 @@ class Controller(object):
 
         dirs = [path.join(trainingRoot,x) for x in enumdirs + activedirs]
 
-        stat = {'done':[],'running':[], 'not started': [], 'error':[], 'not setup':[]}
+        stat = {'done':[],'running':[], 'not started': [], 'error':[], 'not setup':[],'warning':[],'idk':[]}
         for dir in dirs:
             thisVASP = VASP(dir,self.species)
             stat[thisVASP.status()].append(dir.split('/')[-1])
@@ -279,4 +286,33 @@ class Controller(object):
         msg.info(' '.join(stat['not setup']))
         msg.info('Errors')
         msg.info(' '.join(stat['error']))
+        msg.info('Warnings')
+        msg.info(' '.join(stat['warning']))
+        msg.info('Not sure')
+        msg.info(' '.join(stat['idk']))
 
+    def gatherResults(self):
+        from os import path
+        from glob import glob
+        from aBuild.database.dataset import dataset
+
+        
+
+        trainingRoot = path.join(self.root, 'training_set')
+        with chdir(trainingRoot):
+            enumdirs = glob("E.*")
+            activedirs = glob("A.*")
+            pures = glob("pure*")
+
+        dirs = [path.join(trainingRoot,x) for x in enumdirs + activedirs + pures]
+        #        dirs = enumdirs + activedirs
+
+        print('Building dataset')
+        if self.calculator["active"].lower() == "lammps":
+            trainingSet = dataset(dirs,self.species,calculator = 'LAMMPS')
+            print('here')
+            trainingSet.writeReport()
+        if self.calculator["active"].lower() == 'vasp': 
+            trainingSet = dataset(dirs,self.species,calculator = 'VASP')
+            print('here')
+            trainingSet.writeReport()
