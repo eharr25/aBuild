@@ -50,8 +50,11 @@ class Controller(object):
 
     def setDataSet(self,dataSetType):
         self.dataset = dataSetType
-        
 
+    # @property allow to call the function as a variable instead of having to pass in
+    # input.
+        
+    # number of crystal configurations 
     @property
     def nconfigs(self):
         return self.specs[self.dataset]["nconfigs"]
@@ -85,7 +88,7 @@ class Controller(object):
             # Default to [0,0,0] when the enum object gets called up
             return [None for k in range(self.nEnums)]
 
-
+    #Restrict the concentrations of the types of species
     @property
     def concRestrictions(self):
         if "concs" in self.specs[self.dataset]:
@@ -93,7 +96,7 @@ class Controller(object):
         else:
             return [None for k in range(self.nEnums)]
 
-
+    #number of atoms that can be in a unit cell.
     @property
     def enumSizes(self):
         if "sizes" in self.specs[self.dataset]:
@@ -104,7 +107,7 @@ class Controller(object):
             import sys
             sys.exit()
 
-    
+    #restricts which species types can be in specific locations
     @property
     def siteRestrictions(self):
         if "siteRestrictions" in self.specs[self.dataset]:
@@ -129,7 +132,8 @@ class Controller(object):
             edicts.append(edict)
         
         return edicts
-    
+
+    # enmerates through all the possible crystal configurations
     def enumerate(self,dataset):
         from aBuild.enumeration import Enumerate
 
@@ -209,6 +213,9 @@ class Controller(object):
 
         #        rename(path.join(self.root,'fitting/mtp')
         fittingRoot = path.join(self.root,'fitting','mtp')
+        filePath = path.join(fittingRoot,'to-relax.cfg')
+        if path.isfile(filePath ):XF
+            remove(filePath)
         
         for ilat  in range(self.nEnums):
             lat = self.enumDicts[ilat]["lattice"]

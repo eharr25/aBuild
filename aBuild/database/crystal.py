@@ -513,7 +513,7 @@ class Crystal(object):
         self.nAtoms = len(self.basis)
         self.coordsys = 'C'
         atoms = [int(x.split()[1]) for x in lines[8:8 + nAtoms]]
-        self.atom_counts = array([ atoms.count(x) for x in range(3)])
+        self.atom_counts = array([ atoms.count(x) for x in range(max(atoms)+1)])
         self.title = ' '.join(lines[7 + nAtoms + 2].split()[2:4])
         self.latpar = None
         if sum(self.atom_counts) != nAtoms:

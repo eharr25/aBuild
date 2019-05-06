@@ -132,7 +132,7 @@ class MTP(object):
         from os import waitpid, rename,path
         
         print('renaming Trained.mtp_ to pot.mtp')
-        rename(path.join(self.root,'Trained.mtp_'),path.join(self.root,'pot.mtp'))
+        rename(path.join(self.root,'Trained.mtp'),path.join(self.root,'pot.mtp'))
         mlpCommand = 'mlp calc-grade pot.mtp train.cfg train.cfg temp1.cfg'
 
         print('Running calc-grade')
